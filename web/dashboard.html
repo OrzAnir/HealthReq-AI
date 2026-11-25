@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>HealthReq AI</title>
+  <!-- markdown-it turns the agents' Markdown into HTML. Its default settings escape any raw HTML, so it is safe. -->
+  <script src="https://cdn.jsdelivr.net/npm/markdown-it@14.1.0/dist/markdown-it.min.js"></script>
+  <style>
+    :root { --ink: #13262f; --soft: #5f7178; --line: #d9e3e6; --brand: #1d6f8a; --brand-dark: #0f3f50; --bg: #f4f7f8; --ok: #1f8a5b; --bad: #c0392b; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.55 system-ui, -apple-system, "Segoe UI", sans-serif; }
+    .page { max-width: 1400px; margin: 0 auto; padding: 24px; display: grid; grid-template-columns: 320px 1fr; gap: 20px; }
+    .bar { grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; }
+    .bar h1 { margin: 0; font-size: 24px; } .bar h1 span { color: var(--brand); }
+    .pill { font-size: 13px; padding: 5px 12px; border-radius: 20px; background: #e8eef0; color: var(--soft); }
+    .pill.up { background: #e3f4ec; color: var(--ok); } .pill.down { background: #fbe9e7; color: var(--bad); }
+    .box { background: #fff; border: 1px solid var(--line); border-radius: 14px; padding: 18px; }
+    label { font-weight: 700; font-size: 13px; }
+    textarea { width: 100%; height: 90px; margin-top: 6px; padding: 10px; border: 1px solid #c4d2d6; border-radius: 10px; font: inherit; resize: vertical; }
+    .examples { font-size: 12px; color: var(--soft); margin: 8px 0 12px; }
+    .examples a { color: var(--brand); cursor: pointer; display: block; margin-top: 3px; }
+    button { width: 100%; padding: 11px; border: 0; border-radius: 10px; background: var(--brand-dark); color: #fff; font-weight: 700; cursor: pointer; }
+    button:disabled { opacity: .5; cursor: wait; }
+    ol.steps { list-style: none; padding: 0; margin: 16px 0 0; }
+    ol.steps li { display: flex; gap: 10px; align-items: center; padding: 7px 0; border-bottom: 1px dashed var(--line); font-size: 13px; }
+    .icon { width: 20px; height: 20px; border-radius: 50%; border: 2px solid var(--line); flex: none; }
+    li.running .icon { border-color: var(--brand); border-top-color: transparent; animation: spin 1s linear infinite; }
+    li.success .icon { background: var(--ok); border-color: var(--ok); }
+    li.failed .icon { background: var(--bad); border-color: var(--bad); }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .message { margin-top: 12px; font-size: 13px; color: var(--soft); } .message.bad { color: var(--bad); }
+    .results { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-content: start; }
+    .results .box.wide { grid-column: 1 / -1; }
+    .kicker { font-size: 11px; font-weight: 800; letter-spacing: .08em; color: var(--brand); }
+    .out { margin-top: 8px; max-height: 620px; overflow: auto; font-size: 14px; }
+    .out table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+    .out th, .out td { border: 1px solid var(--line); padding: 5px 7px; text-align: left; vertical-align: top; }
+    .out th { background: #eef4f6; }
+    .placeholder { color: #93a3a8; }
+    @media (max-width: 960px) { .page, .results { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+<div class="page">
+  <div class="bar"><h1>HealthReq <span>AI</span></h1><div id="model" class="pill">checking LM Studio...</div></div>
+
+  <aside class="box">
+    <label for="feature">Healthcare functionality</label>
+    <textarea id="feature" placeholder="e.g. Patient appointment scheduling"></textarea>
+    <div class="examples">Try one:
+      <a>Patient appointment scheduling</a>
+      <a>Prescription management with drug safety checks</a>
+      <a>Emergency access to patient health records</a>
+      <a>Lab procedure ordering and results</a>
+    </div>
+    <button id="go">Run the pipeline</button>
+    <ol class="steps">
+      <li data-step="find-domain-passages"><span class="icon"></span>1. Find healthcare passages (BM25)</li>
+      <li data-step="write-requirements"><span class="icon"></span>2. Requirements Writer (Objective 1)</li>
+      <li data-step="find-sdlc-passages"><span class="icon"></span>3. Find SDLC notes (BM25)</li>
+      <li data-step="recommend-sdlc"><span class="icon"></span>4. SDLC Advisor (Objective 2)</li>
+      <li data-step="save-report"><span class="icon"></span>5. Save report</li>
+    </ol>
+    <div id="message" class="message">Each agent takes a few minutes on a laptop.</div>
+  </aside>
+
+  <main class="results">
+    <section class="box"><div class="kicker">OBJECTIVE 1</div><h3>Requirements with reasoning</h3><div id="requirements" class="out placeholder">Appears after step 2.</div></section>
+    <section class="box"><div class="kicker">OBJECTIVE 2</div><h3>Recommended SDLC</h3><div id="recommendation" class="out placeholder">Appears after step 4.</div></section>
+    <section class="box wide"><div class="kicker">EVIDENCE</div><h3>Passages the agents read</h3><div id="sources" class="out placeholder">Appears after steps 1 and 3.</div></section>
+  </main>
+</div>
+
+<script>
+  const WORKFLOW = '/api/workflows/healthreqPipeline'; // Mastra's built-in API for our workflow
+  const md = window.markdownit ? window.markdownit() : null;
+  const $ = (id) => document.getElementById(id);
+  const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  function show(id, markdown) {
+    const element = $(id);
+    element.classList.remove('placeholder');
+    if (md) element.innerHTML = md.render(markdown);
+    else element.textContent = markdown; // libraries could not load (no internet): show plain text
+  }
+
+  function passagesTable(title, passages) {
+    const rows = passages.map((p) => `| ${p.tag} | ${p.file} | ${p.score} | ${p.text.slice(0, 220)}... |`).join('\n');
+    return `**${title}**\n\n| Tag | File | Score | Start of passage |\n| --- | --- | --- | --- |\n${rows}\n\n`;
+  }
+
+  // Colour each step in the list from the run's step statuses (running / success / failed).
+  function paintSteps(steps) {
+    document.querySelectorAll('ol.steps li').forEach((li) => { li.className = steps[li.dataset.step]?.status || ''; });
+  }
+
+  // Show every result that is ready so far, so Objective 1 appears before Objective 2 has finished.
+  function showResults(steps) {
+    const output = (id) => steps[id]?.status === 'success' ? steps[id].output : null;
+    let sources = '';
+    if (output('find-domain-passages')) sources += passagesTable('Requirements Writer read:', output('find-domain-passages').domainPassages);
+    if (output('find-sdlc-passages')) sources += passagesTable('SDLC Advisor read:', output('find-sdlc-passages').sdlcPassages);
+    if (sources) show('sources', sources);
+    if (output('write-requirements')) show('requirements', output('write-requirements').requirements);
+    if (output('recommend-sdlc')) show('recommendation', output('recommend-sdlc').recommendation);
+  }
+
+  async function runPipeline() {
+    const functionality = $('feature').value.trim();
+    if (functionality.length < 5) { $('message').textContent = 'Please describe a functionality first.'; return; }
+    $('go').disabled = true;
+    $('message').className = 'message';
+    paintSteps({});
+    try {
+      // 1. Create a run, 2. start it (Mastra runs it in the background), 3. check on it every 2 seconds.
+      const { runId } = await (await fetch(`${WORKFLOW}/create-run`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' })).json();
+      await fetch(`${WORKFLOW}/start?runId=${runId}`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ inputData: { functionality } }) });
+      const started = Date.now();
+      while (true) {
+        await pause(2000);
+        const run = await (await fetch(`${WORKFLOW}/runs/${runId}`)).json();
+        paintSteps(run.steps || {});
+        showResults(run.steps || {});
+        if (run.status === 'success') { $('message').textContent = `Done in ${Math.round((Date.now() - started) / 1000)} s. Report saved in reports/latest.md.`; break; }
+        if (run.status === 'failed') throw new Error(JSON.stringify(run.error || 'A step failed. See the terminal for details.'));
+        $('message').textContent = `Running... ${Math.round((Date.now() - started) / 1000)} s`;
+      }
+    } catch (error) {
+      $('message').className = 'message bad';
+      $('message').textContent = `Error: ${error.message}`;
+    } finally {
+      $('go').disabled = false;
+    }
+  }
+
+  $('go').addEventListener('click', runPipeline);
+  document.querySelectorAll('.examples a').forEach((a) => a.addEventListener('click', () => { $('feature').value = a.textContent; }));
+  fetch('/healthreq/status').then((r) => r.json()).then((s) => {
+    $('model').textContent = `${s.model} - ${s.modelServerUp ? 'LM Studio connected' : 'LM Studio not running'}`;
+    $('model').className = `pill ${s.modelServerUp ? 'up' : 'down'}`;
+  });
+</script>
+</body>
+</html>

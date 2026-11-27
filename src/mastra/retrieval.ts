@@ -16,7 +16,7 @@ const AREAS = {
 export async function findPassages(query: string, area: keyof typeof AREAS, howMany: number): Promise<Passage[]> {
   const { folders, tagPrefix } = AREAS[area];
   // Ask for extra results, because results from the other area are skipped below.
-  const results = await corpus.search(query, { mode: 'bm25', topK: howMany * 5 });
+  const results = await corpus.search(query, { mode: 'bm25', topK: 100 });
 
   const passages: Passage[] = [];
   for (const result of results) {
